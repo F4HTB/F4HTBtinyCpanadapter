@@ -1,6 +1,6 @@
 CC = g++ 
 
-EXECUTABLE = F4HTB_RTL_Panadapter
+EXECUTABLE = F4HTBtinyCpanadapter
 
 CFLAGS += -Wall -Wextra -g -O0
 LDLIBS += -lm -lfftw3 -lpthread -lrtlsdr  
@@ -21,7 +21,7 @@ man1dir=$(mandir)/man1
 
 all: $(EXECUTABLE)
 
-$(EXECUTABLE): $(EXECUTABLE).c F4HTB_RTL_Panadapter.h
+$(EXECUTABLE): $(EXECUTABLE).c F4HTBtinyCpanadapter.h
 
 clean:
 	rm -f $(EXECUTABLE)
