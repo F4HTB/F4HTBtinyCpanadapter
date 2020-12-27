@@ -37,7 +37,6 @@ struct fftwInfo {
 	int inlen = 1024;
     double binWidth;
     double * currentLine;
-	int _refresh_rate = 5000;
 	float * window;
 }
 fftw;
@@ -304,6 +303,10 @@ int main(int argc, char * argv[]) {
 
     while ((c = getopt(argc, argv, "mhd:r:c:")) != -1)
         switch (c) {
+        case 'c':
+            read_csv(optarg);
+            break;
+            return 1;
         case 'r':
             rtl._samp_rate = atoi(optarg);
             break;
