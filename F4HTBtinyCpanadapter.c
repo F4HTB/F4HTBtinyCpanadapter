@@ -78,15 +78,15 @@ static int rtlsdr_init(){
 		rtlsdr_set_tuner_gain_mode(rtl_dev, 1);
 		int gain_count = rtlsdr_get_tuner_gains(rtl_dev, NULL);
 		printf("Supported gain values (%d): ", gain_count);
-		int gains[gain_count], supported_gains = rtlsdr_get_tuner_gains(rtl_dev, gains);
+		int gains[gain_count], supported_gains = rtlsdr_get_tuner_gains(rtl_dev, gains), target_gain=0;
 		for (int i = 0; i < supported_gains; i++){
-			if (gains[i] > 10 && gains[i] < 30)
-				rtl._gain = gains[i];
-			printf("%.1f ", gains[i] / 10.0);
+			if (gains[i] < rtl._gain*10){
+				target_gain = gains[i];
+			printf("%.1f ", gains[i] / 10.0);}
 		}
 		printf("\n");
-		printf("Gain set to %.1f\n", rtl._gain / 10.0);
-		rtlsdr_set_tuner_gain(rtl_dev, rtl._gain);
+		printf("Gain set to %.1f\n", target_gain / 10.0);
+		rtlsdr_set_tuner_gain(rtl_dev, target_gain);
 	}
 	rtlsdr_set_offset_tuning(rtl_dev, rtl._offset_tuning);
 	rtlsdr_set_center_freq(rtl_dev, rtl._center_freq);
@@ -281,7 +281,7 @@ static void async_read_callback(uint8_t *n_buf, uint32_t len, void *ctx){
 //###########################Starting Setup##########################
 void setup (void)
 {
-
+	scandirfilecolor();
     FB_init();
 	BK_init();
 	rtlsdr_init();
@@ -301,7 +301,7 @@ void help() {
 int main(int argc, char * argv[]) {
     int c;
 
-    while ((c = getopt(argc, argv, "mhd:r:c:")) != -1)
+    while ((c = getopt(argc, argv, "hc:r:g:")) != -1)
         switch (c) {
         case 'c':
             read_csv(optarg);
@@ -309,6 +309,10 @@ int main(int argc, char * argv[]) {
             return 1;
         case 'r':
             rtl._samp_rate = atoi(optarg);
+            break;
+            return 1;
+        case 'g':
+            rtl._gain = atoi(optarg);
             break;
             return 1;
         case 'h':

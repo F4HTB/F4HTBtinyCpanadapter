@@ -271,7 +271,7 @@ void scandirfilecolor()
     struct dirent *dir = NULL;
 	int ret,i=0;
 	char *p;
-    d = opendir("/etc/F4HTBpna");
+    d = opendir("./");
     if (d)
     {
         while ((dir = readdir(d)) != NULL)
