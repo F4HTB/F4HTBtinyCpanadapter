@@ -15,6 +15,8 @@
 #include <complex.h>
 #include <string.h>
 
+#include "waterfallcolor.c"
+
 //###########################global variables##########################
 //##################################RTL variables
 static rtlsdr_dev_t *rtl_dev;
@@ -35,7 +37,8 @@ struct fftwInfo {
 	int inlen = 1024;
     double binWidth;
     double * currentLine;
-	int _refresh_rate = 500;
+	int _refresh_rate = 5000;
+	float * window;
 }
 fftw;
 
@@ -100,7 +103,7 @@ static int rtlsdr_init(){
 }
 
 
-//###########################Frame Buffer##########################
+//###########################FFT##########################
 void fft_init(void) {
     
     fftw.in = (fftw_complex * ) fftw_malloc(sizeof(fftw_complex) * fftw.inlen);
@@ -123,6 +126,28 @@ void fftwDeinit(void) {
     fftw_free(fftw.out);
     free(fftw.currentLine);
     fftw_cleanup();
+}
+
+float * windowinginit(int N) {
+
+    float * w;
+
+    w = (float * ) calloc(N, sizeof(float));
+
+    //blackman harris windowing values
+    float a0 = 0.35875;
+    float a1 = 0.48829;
+    float a2 = 0.14128;
+    float a3 = 0.01168;
+
+    //create blackman harris window
+    for (int i = 0; i < N; i++) {
+        w[i] = a0 - (a1 * cos((2.0 * M_PI * i) / ((N) - 1))) + (a2 * cos((4.0 * M_PI * i) / ((N) - 1))) - (a3 * cos((6.0 * M_PI * i) / ((N) - 1)));
+        //w[i] = 0.5 * (1 - cos((2*M_PI)*i/(NUM_SAMPLES/2))); //hamming window
+    }
+
+    return w;
+
 }
 
 //###########################Frame Buffer##########################
@@ -171,14 +196,12 @@ int scale = 1;
 int pixelperdb = 3;
 int dbbottom = 90;
 
-void put_pixel_32bpp(int x, int y, int r, int g, int b, int t) {
-    long int location = 0;
+void put_pixel_24bpp(int x, int y, char r, char g, char b) {
+    unsigned int location;
     location = (x + vinfo.xoffset) * (vinfo.bits_per_pixel / 8) + (y + vinfo.yoffset) * finfo.line_length;
     *(framebuffer + location) = b; // Some blue
-    *(framebuffer + location + 1) = g; // A little green
-    *(framebuffer + location + 2) = r; // A lot of red
-    *(framebuffer + location + 3) = t; // No transparency
-
+    *(framebuffer + location++) = g; // A little green
+    *(framebuffer + location++) = r; // A lot of red
 }
 
 void put_framebuffer_fbp() {
@@ -187,7 +210,7 @@ void put_framebuffer_fbp() {
 
 void BK_init() {
 
-    for (unsigned int x = 0; x < vinfo.xres; x++) put_pixel_32bpp(x, (ppy), 255, 255, 255, 0);
+    for (unsigned int x = 0; x < vinfo.xres; x++) put_pixel_24bpp(x, (ppy), 255, 255, 255);
     put_framebuffer_fbp();
 }
 
@@ -198,15 +221,32 @@ void setoneSPECline(char * values) {
         for (unsigned int i = 0; i < vinfo.xres; i++) {
             int y = (254 - * (values + i)) * (ppy -1) / 255;
             for ( int z = y; z < (ppy-1); z++) {
-                put_pixel_32bpp(i, z, 255, 255, 255, 0);
+                put_pixel_24bpp(i, z, 255, 255, 255);
             }
         }
 }
 
+void pointer_shift(int shift, int offset) {
+    shift *= vinfo.xres * vinfo.bits_per_pixel / 8;
+    memmove(framebuffer + shift + offset, framebuffer + offset, (screensize - shift - offset) * sizeof( * framebuffer));
+}
+
+void setoneFFTline(char * values) {
+    pointer_shift(1, (screensize / 2 + finfo.line_length));
+	for (unsigned int i = 0; i < vinfo.xres; i++) {
+		int y = * (values + i);
+		put_pixel_24bpp(i, ppy+1, colormap_rainbow[y][0], colormap_rainbow[y][1], colormap_rainbow[y][2]);
+    }
+}
+
 static void async_read_callback(uint8_t *n_buf, uint32_t len, void *ctx){
+	unsigned int time_spent = 16666;
+	struct timespec start, end;
+	clock_gettime(CLOCK_REALTIME, &start);
+	
 	for (int i=0; i<(fftw.inlen*2); i+=2){
-		fftw.in[i/2][0] = (n_buf[i]-127.34);
-        fftw.in[i/2][1] = (n_buf[i+1]-127.34);
+		fftw.in[i/2][0] = (n_buf[i]-127.34)*fftw.window[i/2];
+        fftw.in[i/2][1] = (n_buf[i+1]-127.34)*fftw.window[i/2];
 	}
 	
 	fftw_execute(fftw.plan);
@@ -221,12 +261,19 @@ static void async_read_callback(uint8_t *n_buf, uint32_t len, void *ctx){
 		}
 				
 		double val = (sqrt(fftw.out[i][0] * fftw.out[i][0] + fftw.out[i][1] * fftw.out[i][1]));
+		val = val < 1.0 ? 1.0 : val;
 		val = 10 * log10((val)); //convert to db
 		*(values + p) = (char)(val * pixelperdb + (dbbottom * pixelperdb + scale));
 	}
 	
 	setoneSPECline(values);
+	setoneFFTline(values);
 	put_framebuffer_fbp();
+	
+	clock_gettime(CLOCK_REALTIME, &end);
+	time_spent -= ((end.tv_nsec - start.tv_nsec)/1000);
+ 
+    if(time_spent > 0 && time_spent < 6000){usleep(time_spent);} 
 }
 
 
@@ -240,6 +287,7 @@ void setup (void)
 	BK_init();
 	rtlsdr_init();
 	fft_init();
+	fftw.window = windowinginit(fftw.inlen);
 	ppx = vinfo.xres / 2;
     ppy = vinfo.yres / 2;
 
